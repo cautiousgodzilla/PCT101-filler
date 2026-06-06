@@ -1,0 +1,14 @@
+{
+  "name": "pct-form-filler-scrape",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Node serverless function that renders WIPO PatentScope with @sparticuz/chromium to scrape the bibliographic page and download the RO/101 PDF.",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@sparticuz/chromium": "^149.0.0",
+    "puppeteer-core": "^25.1.0"
+  }
+}

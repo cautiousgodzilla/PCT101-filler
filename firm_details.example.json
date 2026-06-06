@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy to firm_details.json (git-ignored) and fill in. These fill the {firm_*}/{agent_*} placeholders in the public templates. Leave blank to omit. A per-user/per-firm version of this is the login feature in TODO.md.",
+  "firm_name": "",
+  "firm_address": "",
+  "firm_phone": "",
+  "firm_email": "",
+  "agent_name": "",
+  "agent_inpa": ""
+}

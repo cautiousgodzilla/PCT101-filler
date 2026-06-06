@@ -1,0 +1,129 @@
+# ─────────────────────────────────────────────────────────────
+# Secrets & environment  (NEVER commit these)
+# ─────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets.json
+service-account*.json
+
+# Firm / agent PII — the REAL templates and firm details stay private.
+# (Public repo ships firm-redacted templates/ + firm_details.example.json only.)
+templates_private/
+firm_details.json
+!firm_details.example.json
+
+# ─────────────────────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Test / type / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ─────────────────────────────────────────────────────────────
+# Node.js  (the Vercel @sparticuz function)
+# ─────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npm/
+
+# ─────────────────────────────────────────────────────────────
+# Playwright / browser artifacts
+# ─────────────────────────────────────────────────────────────
+test-results/
+playwright-report/
+playwright/.cache/
+ms-playwright/
+error_screenshot.png
+
+# ─────────────────────────────────────────────────────────────
+# Deployment platforms
+# ─────────────────────────────────────────────────────────────
+.vercel/
+.render/
+
+# ─────────────────────────────────────────────────────────────
+# Generated output (forms the app produces) & local scratch
+# ─────────────────────────────────────────────────────────────
+form_1.docx
+form_2.docx
+form_3.docx
+form_5.docx
+Form_*.docx
+input_form_*.docx
+output*.docx
+_out_*.docx
+PCT_Forms.zip
+forms.zip
+file.pdf
+RO101_*.pdf
+~$*.docx
+*.tmp
+_*.txt
+_*.html
+_probe/
+_cells/
+
+# ...but ALWAYS keep the form templates the app fills (never ignore these)
+!templates/
+!templates/*.docx
+
+# ─────────────────────────────────────────────────────────────
+# Logs
+# ─────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─────────────────────────────────────────────────────────────
+# IDE / editors
+# ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# ─────────────────────────────────────────────────────────────
+# OS files
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini

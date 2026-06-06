@@ -1,0 +1,10 @@
+# Keep the image lean and secret-free
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+node_modules/
+.vercel/
+*.log
+_*.txt

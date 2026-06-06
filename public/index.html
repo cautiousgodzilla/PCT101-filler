@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PCT → Form 1 Filler</title>
+<style>
+  :root { --bg:#0f172a; --card:#fff; --line:#e2e8f0; --accent:#1d4ed8; --accent2:#1e40af; --muted:#64748b; --ok:#16a34a; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; background:#f1f5f9; color:#0f172a; }
+  header { background:linear-gradient(135deg,#1e3a8a,#1d4ed8); color:#fff; padding:22px 28px; }
+  header h1 { margin:0; font-size:20px; letter-spacing:.3px; }
+  header p { margin:4px 0 0; opacity:.85; font-size:13px; }
+  main { max-width:1000px; margin:24px auto; padding:0 16px 60px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:22px; margin-bottom:20px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  .card h2 { margin:0 0 4px; font-size:16px; }
+  .card .hint { color:var(--muted); font-size:13px; margin:0 0 16px; }
+  label { display:block; font-size:12px; font-weight:600; color:#334155; margin:0 0 4px; }
+  input[type=text], input[type=number], textarea, select {
+    width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; font-family:inherit; background:#fff;
+  }
+  textarea { resize:vertical; min-height:48px; }
+  .grid { display:grid; gap:12px; }
+  .g2 { grid-template-columns:1fr 1fr; }
+  .g3 { grid-template-columns:1fr 1fr 1fr; }
+  .g4 { grid-template-columns:1fr 1fr 1fr 1fr; }
+  .field { margin-bottom:12px; }
+  button { cursor:pointer; border:none; border-radius:8px; font-size:14px; font-weight:600; padding:10px 18px; }
+  .btn-primary { background:var(--accent); color:#fff; }
+  .btn-primary:hover { background:var(--accent2); }
+  .btn-ghost { background:#eef2ff; color:var(--accent2); }
+  .btn-danger { background:#fee2e2; color:#b91c1c; padding:6px 10px; font-size:12px; }
+  .btn-add { background:#dcfce7; color:#166534; padding:7px 12px; font-size:13px; }
+  .row-block { border:1px dashed var(--line); border-radius:10px; padding:14px; margin-bottom:12px; position:relative; }
+  .row-block .rm { position:absolute; top:10px; right:10px; }
+  .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .spacer { flex:1; }
+  #status { font-size:13px; margin-left:8px; }
+  .status-err { color:#b91c1c; }
+  .status-ok { color:var(--ok); }
+  .status-busy { color:var(--accent2); }
+  .hidden { display:none; }
+  fieldset { border:1px solid var(--line); border-radius:10px; padding:14px; margin:0 0 16px; }
+  legend { font-size:13px; font-weight:700; color:#1e293b; padding:0 6px; }
+  .filelist { font-size:12px; color:var(--muted); margin-top:6px; }
+  .chk { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:#1e293b; }
+  .chk input { width:auto; }
+  .spin { display:inline-block; width:14px; height:14px; border:2px solid #cbd5e1; border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>PCT → FORM 1 Filler</h1>
+  <p>Indian national-phase Application for Grant of Patent (Form 1)</p>
+</header>
+
+<main>
+  <!-- STEP 1 -->
+  <section class="card">
+    <h2>1 · Source data</h2>
+    <p class="hint">Enter the international (PCT) / publication number to auto-read the WIPO PatentScope bibliographic page, and/or attach the RO/101, IB-306, ISR or priority-document PDFs. You can also skip extraction and fill the form manually below.</p>
+    <div class="grid g2">
+      <div class="field">
+        <label>International / Publication number</label>
+        <input type="text" id="pct_number" placeholder="PCT/IB2023/062067 or WO2024/123456" />
+      </div>
+      <div class="field">
+        <label>Attach PDFs (RO/101, IB-306, ISR, priority doc) — optional</label>
+        <input type="file" id="pdfs" accept="application/pdf" multiple />
+        <div class="filelist" id="filelist"></div>
+      </div>
+    </div>
+    <div class="bar">
+      <button class="btn-primary" id="btnExtract">Extract data</button>
+      <button class="btn-ghost" id="btnManual">Fill manually</button>
+      <button class="btn-ghost" id="btnRo101">Download RO/101 PDF</button>
+      <span id="status"></span>
+    </div>
+    <p class="hint" style="margin:10px 0 0">Tip: extraction is most reliable with the <strong>WO publication number</strong> (e.g. <code>WO2024116111</code>). The RO/101 download reads the live PatentScope page.</p>
+  </section>
+
+  <!-- STEP 2 -->
+  <form id="reviewForm" class="hidden">
+    <section class="card">
+      <h2>2 · Review &amp; edit</h2>
+      <p class="hint">Verify every value against the bibliographic record before generating. Addresses are auto-formatted with a comma before the country name.</p>
+
+      <div class="field">
+        <label>Title of the invention</label>
+        <textarea id="title_of_invention"></textarea>
+      </div>
+
+      <fieldset>
+        <legend>PCT (Section 9)</legend>
+        <div class="grid g2">
+          <div class="field"><label>International application no.</label><input type="text" id="international_application_no" /></div>
+          <div class="field"><label>International filing date</label><input type="text" id="international_filing_date" placeholder="DD/MM/YYYY" /></div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Filing details (Forms 1 / 3 / 5)</legend>
+        <div class="grid g2">
+          <div class="field"><label>National-phase application number (if allotted)</label><input type="text" id="application_number" placeholder="e.g. 2024xxxxxxxx — leave blank if not yet allotted" /></div>
+          <div class="field"><label>Date the forms are signed / filed</label><input type="text" id="filing_date" placeholder="defaults to today" /></div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Priority / Convention (Section 8)</legend>
+        <div class="grid g3">
+          <div class="field"><label>Country</label><input type="text" id="pr_country" /></div>
+          <div class="field"><label>Application number</label><input type="text" id="pr_application_number" /></div>
+          <div class="field"><label>Filing date</label><input type="text" id="pr_filing_date" placeholder="DD/MM/YYYY" /></div>
+        </div>
+        <div class="grid g3">
+          <div class="field"><label>Applicant name</label><input type="text" id="pr_applicant_name" /></div>
+          <div class="field"><label>Priority title (English apps only)</label><input type="text" id="pr_title" /></div>
+          <div class="field"><label>IPC</label><input type="text" id="pr_ipc" /></div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Applicant(s) — Section 3A</legend>
+        <div class="field" style="max-width:280px">
+          <label>Category of applicant</label>
+          <select id="category_of_applicant">
+            <option>Other than Natural Person</option>
+            <option>Natural Person</option>
+          </select>
+        </div>
+        <div id="applicants"></div>
+        <button type="button" class="btn-add" data-add="applicant">+ Add applicant</button>
+      </fieldset>
+
+      <fieldset>
+        <legend>Inventor(s) — Section 4 / Declarations / Signature</legend>
+        <div id="inventors"></div>
+        <button type="button" class="btn-add" data-add="inventor">+ Add inventor</button>
+      </fieldset>
+
+      <fieldset>
+        <legend>Attachments &amp; counts (Section 13)</legend>
+        <div class="grid g3">
+          <div class="field"><label>No. of claims</label><input type="number" id="claims_count" min="0" /></div>
+          <div class="field"><label>No. of drawings</label><input type="number" id="drawings_count" min="0" /></div>
+          <div class="field"><label>Description pages</label><input type="number" id="description_pages" min="0" /></div>
+          <div class="field"><label>Claims pages</label><input type="number" id="claims_pages_listed" min="0" /></div>
+          <div class="field"><label>Abstract pages</label><input type="number" id="abstract_pages_listed" min="0" /></div>
+          <div class="field"><label>Drawings pages</label><input type="number" id="drawings_pages_listed" min="0" /></div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Forms to generate</legend>
+        <div class="bar" id="formPicker">
+          <label class="chk"><input type="checkbox" class="form-chk" value="1" checked /> Form 1 — Application for grant</label>
+          <label class="chk"><input type="checkbox" class="form-chk" value="2" checked /> Form 2 — Specification cover</label>
+          <label class="chk"><input type="checkbox" class="form-chk" value="3" checked /> Form 3 — Statement &amp; undertaking (S.8)</label>
+          <label class="chk"><input type="checkbox" class="form-chk" value="5" checked /> Form 5 — Declaration of inventorship</label>
+        </div>
+        <p class="hint" style="margin:10px 0 0">Selecting more than one downloads a single .zip; one form downloads a .docx.</p>
+      </fieldset>
+
+      <div class="bar">
+        <button type="submit" class="btn-primary" id="btnGenerate">Generate forms</button>
+        <span class="spacer"></span>
+        <span id="genstatus"></span>
+      </div>
+    </section>
+  </form>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

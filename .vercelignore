@@ -1,0 +1,15 @@
+# Never ship secrets or local cruft to Vercel
+.env
+.env.*
+!.env.example
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Node modules are reinstalled from package.json during the build
+node_modules/
+
+# Local dev / scratch
+*.log
+local_server.py

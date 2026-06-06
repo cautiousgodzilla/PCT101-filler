@@ -1,0 +1,17 @@
+# Render Blueprint — deploy with one click from the dashboard ("New +" →
+# "Blueprint") or via the Render CLI. See RENDER.md for the full guide.
+services:
+  - type: web
+    name: pct-form-filler
+    runtime: docker
+    # 'starter' (512 MB) usually renders one PatentScope tab; bump to 'standard'
+    # (2 GB) if you see out-of-memory / browser crashes. 'free' works for testing
+    # but spins down when idle (slow cold start).
+    plan: starter
+    region: oregon
+    healthCheckPath: /
+    # If this repo keeps the app in a 'filler/' subfolder, uncomment:
+    # rootDir: filler
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false          # set the value in the Render dashboard (kept secret)
