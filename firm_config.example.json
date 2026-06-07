@@ -1,0 +1,17 @@
+{
+  "_comment": "Copy to firm_config.json (git-ignored) and fill in your firm(s). Each firm's agent roster is PII and must NOT be committed. A user whose login-email domain matches one of 'domains' gets that firm's details + roster auto-filled into the forms; all other users get bracketed placeholders.",
+  "firms": [
+    {
+      "domains": ["yourfirm", "yourfirm.com"],
+      "firm_name": "Your Firm Name",
+      "firm_address": "Your firm postal address, City PIN, State, Country.",
+      "firm_phone": "Your firm phone",
+      "firm_email": "info@yourfirm.com",
+      "signing_agent": { "name": "Signing Agent Name", "inpa": "IN/PA-0000" },
+      "agents": [
+        { "name": "Agent One", "inpa": "0000", "mobile": "9000000000" },
+        { "name": "Agent Two", "inpa": "0001", "mobile": "9000000001" }
+      ]
+    }
+  ]
+}

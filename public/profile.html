@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Firm profile · PCT Form Filler</title>
+<style>
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; background:#f1f5f9; color:#0f172a; }
+  header { background:linear-gradient(135deg,#1e3a8a,#1d4ed8); color:#fff; padding:18px 28px; display:flex; justify-content:space-between; align-items:center; }
+  header h1 { margin:0; font-size:18px; }
+  header a { color:#dbeafe; font-size:13px; }
+  main { max-width:880px; margin:24px auto; padding:0 16px 60px; }
+  .card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:22px; margin-bottom:18px; }
+  .card h2 { margin:0 0 4px; font-size:15px; }
+  .hint { color:#64748b; font-size:13px; margin:0 0 14px; }
+  label { display:block; font-size:12px; font-weight:600; color:#334155; margin:10px 0 4px; }
+  input, textarea { width:100%; padding:8px 10px; border:1px solid #e2e8f0; border-radius:8px; font-size:14px; box-sizing:border-box; font-family:inherit; }
+  .grid { display:grid; gap:12px; grid-template-columns:1fr 1fr; }
+  .agent { display:grid; grid-template-columns:2fr 1fr 1fr auto; gap:8px; align-items:end; border:1px dashed #e2e8f0; border-radius:10px; padding:10px; margin-bottom:8px; }
+  button { cursor:pointer; border:none; border-radius:8px; font-size:14px; font-weight:600; padding:9px 16px; }
+  .btn-primary { background:#1d4ed8; color:#fff; } .btn-primary:hover { background:#1e40af; }
+  .btn-add { background:#dcfce7; color:#166534; padding:7px 12px; font-size:13px; }
+  .btn-rm { background:#fee2e2; color:#b91c1c; padding:7px 10px; font-size:12px; }
+  .bar { display:flex; align-items:center; gap:12px; margin-top:8px; }
+  .msg { font-size:13px; } .err { color:#b91c1c; } .ok { color:#16a34a; }
+  code { background:#f1f5f9; padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Firm profile</h1>
+  <a href="/">&larr; Back to the filler</a>
+</header>
+<main>
+  <p class="hint" id="scope"></p>
+
+  <div class="card">
+    <h2>Firm details (Section 7 + signature)</h2>
+    <p class="hint">Shared by everyone in your firm. Any colleague can edit this.</p>
+    <label>Firm name</label><input id="firm_name" />
+    <label>Postal address</label><textarea id="firm_address" rows="2"></textarea>
+    <div class="grid">
+      <div><label>Phone</label><input id="firm_phone" /></div>
+      <div><label>Email</label><input id="firm_email" /></div>
+    </div>
+    <div class="grid">
+      <div><label>Signing agent name</label><input id="signing_agent_name" /></div>
+      <div><label>Signing agent IN/PA</label><input id="signing_agent_inpa" /></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Authorized patent agents (Section 6)</h2>
+    <p class="hint">Add each agent one at a time. Order here is the order in the form.</p>
+    <div id="agents"></div>
+    <button type="button" class="btn-add" id="btnAdd">+ Add agent</button>
+  </div>
+
+  <div class="bar">
+    <button class="btn-primary" id="btnSave">Save profile</button>
+    <span class="msg" id="msg"></span>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const FIRM = ["firm_name","firm_address","firm_phone","firm_email","signing_agent_name","signing_agent_inpa"];
+
+  function agentRow(a = {}) {
+    const d = document.createElement("div");
+    d.className = "agent";
+    d.innerHTML =
+      '<div><label>Name</label><input class="a-name" /></div>' +
+      '<div><label>IN/PA No.</label><input class="a-inpa" /></div>' +
+      '<div><label>Mobile</label><input class="a-mobile" /></div>' +
+      '<button type="button" class="btn-rm">Remove</button>';
+    d.querySelector(".a-name").value = a.name || "";
+    d.querySelector(".a-inpa").value = a.inpa || "";
+    d.querySelector(".a-mobile").value = a.mobile || "";
+    d.querySelector(".btn-rm").addEventListener("click", () => d.remove());
+    return d;
+  }
+  function addAgent(a) { $("agents").appendChild(agentRow(a)); }
+  function collect() {
+    const firm = {}; FIRM.forEach((k) => (firm[k] = $(k).value.trim()));
+    const agents = Array.from($("agents").querySelectorAll(".agent")).map((d) => ({
+      name: d.querySelector(".a-name").value.trim(),
+      inpa: d.querySelector(".a-inpa").value.trim(),
+      mobile: d.querySelector(".a-mobile").value.trim(),
+    })).filter((a) => a.name || a.inpa || a.mobile);
+    return { firm, agents };
+  }
+
+  (async () => {
+    // Must be signed in.
+    if (!(await Auth.requireAuthOrRedirect("/login.html"))) return;
+    const headers = { ...(await Auth.getAuthHeader()) };
+    const res = await fetch("/api/firm", { headers });
+    const d = await res.json().catch(() => ({}));
+    if (!d.configured) {
+      $("scope").innerHTML = "⚠️ Supabase is not configured on the server, so profiles can't be stored yet.";
+      $("btnSave").disabled = true;
+      return;
+    }
+    $("scope").innerHTML = "Editing the firm for domain <code>" + (d.domain || "") + "</code>.";
+    const f = d.firm || {};
+    FIRM.forEach((k) => ($(k).value = f[k] || ""));
+    (d.agents && d.agents.length ? d.agents : [{}]).forEach(addAgent);
+  })();
+
+  $("btnAdd").addEventListener("click", () => addAgent({}));
+  $("btnSave").addEventListener("click", async () => {
+    const msg = $("msg");
+    msg.className = "msg"; msg.textContent = "Saving…";
+    $("btnSave").disabled = true;
+    try {
+      const res = await fetch("/api/firm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await Auth.getAuthHeader()) },
+        body: JSON.stringify(collect()),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "Save failed");
+      msg.className = "msg ok"; msg.textContent = "✓ Saved — these now fill your forms.";
+    } catch (e) {
+      msg.className = "msg err"; msg.textContent = "✗ " + e.message;
+    } finally {
+      $("btnSave").disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

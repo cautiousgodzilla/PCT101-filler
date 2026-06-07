@@ -131,7 +131,7 @@
     setStatus(status, '<span class="spin"></span> Fetching RO/101 from PatentScope…', "status-busy");
     $("btnRo101").disabled = true;
     try {
-      const res = await fetch(`/api/scrape?docId=${encodeURIComponent(num)}&pdf=1`);
+      const res = await fetch(`/api/scrape?docId=${encodeURIComponent(num)}&pdf=1`, { headers: await Auth.getAuthHeader() });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.ok) {
         throw new Error((d.notes && d.notes.join("; ")) || d.error || "PatentScope scrape failed.");
@@ -181,7 +181,7 @@
       if (pct) {
         setStatus(status, '<span class="spin"></span> Reading PatentScope…', "status-busy");
         try {
-          const sres = await fetch(`/api/scrape?docId=${encodeURIComponent(pct)}&pdf=1`);
+          const sres = await fetch(`/api/scrape?docId=${encodeURIComponent(pct)}&pdf=1`, { headers: await Auth.getAuthHeader() });
           const sd = await sres.json().catch(() => ({}));
           if (sd && sd.ok) {
             biblioText = sd.biblio_text || "";
@@ -202,7 +202,7 @@
       setStatus(status, '<span class="spin"></span> Extracting fields…', "status-busy");
       const res = await fetch("/api/extract", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await Auth.getAuthHeader()) },
         body: JSON.stringify({ pct_number: pct, biblio_text: biblioText, pdfs }),
       });
       const data = await res.json();
@@ -234,7 +234,7 @@
       if (!payload.forms.length) throw new Error("Select at least one form to generate.");
       const res = await fetch("/api/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await Auth.getAuthHeader()) },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -260,4 +260,22 @@
       $("btnGenerate").disabled = false;
     }
   });
+
+  // ---- auth gate + user bar (no-op when Supabase isn't configured) ----
+  (async () => {
+    if (!(await Auth.requireAuthOrRedirect("/login.html"))) return; // redirected
+    if (!(await Auth.isConfigured())) return; // auth disabled -> nothing to show
+    const user = await Auth.getUser();
+    const bar = $("userbar");
+    if (user && bar) {
+      bar.innerHTML =
+        '<span style="opacity:.9">' + (user.email || "signed in") + '</span> ' +
+        '<a href="/profile.html" style="margin-left:8px;color:#dbeafe;font-size:12px;">Firm profile</a> ' +
+        '<button id="btnSignOut" style="margin-left:8px;cursor:pointer;border:1px solid #ffffff66;background:transparent;color:#fff;border-radius:6px;padding:4px 10px;font-size:12px;">Sign out</button>';
+      document.getElementById("btnSignOut").addEventListener("click", async () => {
+        await Auth.signOut();
+        window.location.href = "/login.html";
+      });
+    }
+  })();
 })();

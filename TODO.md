@@ -71,6 +71,34 @@ match the template's formatting.
 **Acceptance:** a generated form is visually indistinguishable from the template
 (fonts, bold, spacing, table borders, page layout) with only the data changed.
 
+**Status / decision:** going with option 1 (`docxtpl`). A Form 1 prototype was
+built in the **`filler-docxtpl/`** test folder (separate from production) using
+`{%tr for ... %}` row-group loops for applicants/inventors and `{{ }}` fields
+for everything else. Remaining work:
+- [ ] Reconstruct the docxtpl `_forms.py` renderer — it was lost when the test
+      folder was copied with a bad exclude pattern (`_*` dropped `_forms.py`).
+      The tagged `templates/form_1_template.docx` survived in `filler-docxtpl/`.
+- [ ] Migrate Forms 2/3/5 to docxtpl (mostly scalar `{{ }}` fields).
+- [ ] Wire the **agent roster** (Section 6) as a `{%tr%}` loop fed from the
+      logged-in user's account/firm profile (see auth + firm-profile features),
+      not hardcoded in the template.
+- [ ] Promote docxtpl from `filler-docxtpl/` into production once validated.
+
+---
+
+## Authentication & per-user firm/agent profile (Supabase)
+
+Implemented (adapted to this Python + vanilla-JS stack): Supabase Auth on the
+client, service-role JWT verification on the Python server. Follow-ups:
+- [ ] Create the Supabase project; set `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
+      `SUPABASE_SECRET_KEY` (server-only) env vars.
+- [ ] `user_profiles` / `agents` tables: store each user's firm details + agent
+      roster (the data redacted out of the public templates).
+- [ ] On generate, fill `{firm_*}` / agent roster from the authenticated user's
+      profile (replaces the interim `firm_details.json`).
+- [ ] Decide whether form generation requires login or stays open (currently auth
+      is enforced only when Supabase env vars are configured).
+
 ---
 
 ## Other / smaller

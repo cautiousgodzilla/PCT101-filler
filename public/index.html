@@ -50,9 +50,12 @@
 </style>
 </head>
 <body>
-<header>
-  <h1>PCT → FORM 1 Filler</h1>
-  <p>Indian national-phase Application for Grant of Patent (Form 1)</p>
+<header style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+  <div>
+    <h1>PCT → FORM 1 Filler</h1>
+    <p>Indian national-phase Application for Grant of Patent (Form 1)</p>
+  </div>
+  <div id="userbar" style="font-size:13px;white-space:nowrap;"></div>
 </header>
 
 <main>
@@ -172,6 +175,8 @@
   </form>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/auth.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

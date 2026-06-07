@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sign in · PCT Form Filler</title>
+<style>
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; background:#f1f5f9; color:#0f172a; }
+  .wrap { max-width:380px; margin:8vh auto; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:28px; box-shadow:0 1px 2px rgba(0,0,0,.05); }
+  h1 { font-size:18px; margin:0 0 4px; }
+  p.sub { color:#64748b; font-size:13px; margin:0 0 18px; }
+  label { display:block; font-size:12px; font-weight:600; color:#334155; margin:12px 0 4px; }
+  input { width:100%; padding:9px 10px; border:1px solid #e2e8f0; border-radius:8px; font-size:14px; box-sizing:border-box; }
+  button { width:100%; margin-top:18px; cursor:pointer; border:none; border-radius:8px; font-size:14px; font-weight:600; padding:11px; background:#1d4ed8; color:#fff; }
+  button:hover { background:#1e40af; }
+  .msg { font-size:13px; margin-top:12px; min-height:18px; }
+  .err { color:#b91c1c; } .ok { color:#16a34a; }
+  .alt { font-size:13px; margin-top:16px; text-align:center; color:#64748b; }
+  a { color:#1d4ed8; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Sign in</h1>
+    <p class="sub">PCT → Form 1 Filler</p>
+    <form id="f">
+      <label for="email">Email</label>
+      <input type="email" id="email" required autocomplete="email" />
+      <label for="password">Password</label>
+      <input type="password" id="password" required autocomplete="current-password" />
+      <button type="submit" id="btn">Sign in</button>
+    </form>
+    <div class="msg" id="msg"></div>
+    <p class="alt">No account? <a href="/signup.html">Create one</a></p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/auth.js"></script>
+  <script>
+    (async () => {
+      // If auth isn't configured, this page isn't needed — go to the app.
+      if (!(await Auth.isConfigured())) { window.location.href = "/"; return; }
+      await Auth.redirectIfAuthed("/");
+    })();
+    const msg = document.getElementById("msg");
+    document.getElementById("f").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById("btn");
+      btn.disabled = true; msg.className = "msg"; msg.textContent = "Signing in…";
+      try {
+        await Auth.signIn(document.getElementById("email").value.trim(), document.getElementById("password").value);
+        window.location.href = "/";
+      } catch (err) {
+        msg.className = "msg err"; msg.textContent = "✗ " + (err.message || "Sign in failed");
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

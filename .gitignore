@@ -14,6 +14,8 @@ service-account*.json
 templates_private/
 firm_details.json
 !firm_details.example.json
+firm_config.json
+!firm_config.example.json
 
 # ─────────────────────────────────────────────────────────────
 # Python
@@ -72,6 +74,7 @@ error_screenshot.png
 # ─────────────────────────────────────────────────────────────
 .vercel/
 .render/
+.supabase/
 
 # ─────────────────────────────────────────────────────────────
 # Generated output (forms the app produces) & local scratch
@@ -94,6 +97,9 @@ _*.txt
 _*.html
 _probe/
 _cells/
+Temp/
+temp/
+tmp/
 
 # ...but ALWAYS keep the form templates the app fills (never ignore these)
 !templates/
