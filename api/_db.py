@@ -121,7 +121,16 @@ def save_firm(email: str, firm_fields: dict, agents: list):
             return None
         fid = bundle["firm"]["id"]
         clean = {k: str(firm_fields.get(k, "")) for k in FIRM_FIELDS}
-        _rest("PATCH", f"/firms?id=eq.{fid}", body=clean)
+        try:
+            _rest("PATCH", f"/firms?id=eq.{fid}", body=clean)
+        except urllib.error.HTTPError as e:
+            # DB predates the firm_fax column -> save the rest (apply the
+            # supabase_schema.sql migration to persist fax).
+            if "firm_fax" in clean and e.code in (400, 404):
+                clean.pop("firm_fax")
+                _rest("PATCH", f"/firms?id=eq.{fid}", body=clean)
+            else:
+                raise
         _rest("DELETE", f"/agents?firm_id=eq.{fid}")
         rows = [
             {"firm_id": fid, "name": str(a.get("name", "")), "inpa": str(a.get("inpa", "")),
