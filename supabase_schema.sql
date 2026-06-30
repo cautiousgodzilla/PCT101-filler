@@ -14,11 +14,15 @@ create table if not exists public.firms (
   firm_name           text not null default '',
   firm_address        text not null default '',
   firm_phone          text not null default '',
+  firm_fax            text not null default '',
   firm_email          text not null default '',
   signing_agent_name  text not null default '',
   signing_agent_inpa  text not null default '',
   updated_at          timestamptz not null default now()
 );
+
+-- Migration for firms created before firm_fax existed (idempotent).
+alter table public.firms add column if not exists firm_fax text not null default '';
 
 -- Which email domains belong to which firm (two domains of one organization -> one firm).
 create table if not exists public.firm_domains (

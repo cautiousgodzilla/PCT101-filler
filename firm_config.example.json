@@ -5,7 +5,8 @@
       "domains": ["yourfirm", "yourfirm.com"],
       "firm_name": "Your Firm Name",
       "firm_address": "Your firm postal address, City PIN, State, Country.",
-      "firm_phone": "Your firm phone",
+      "firm_phone": "Your firm phone (landline -> Form 1 §7 Telephone)",
+      "firm_fax": "Your firm fax (-> Form 1 §7 Fax)",
       "firm_email": "info@yourfirm.com",
       "signing_agent": { "name": "Signing Agent Name", "inpa": "IN/PA-0000" },
       "agents": [

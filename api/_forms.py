@@ -21,13 +21,175 @@ import io
 import json
 import os
 import re
-from datetime import date
+from copy import deepcopy
+from datetime import date, datetime
 
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+# ---------------------------------------------------------------------------
+# XML-level filling engine (style-preserving)
+# ---------------------------------------------------------------------------
+# Migrated from the python-docx high-level approach (which rebuilt tables and
+# hard-coded fonts) to OOXML-level edits: we only touch the text inside <w:t>
+# and CLONE existing styled <w:tr>/<w:p> nodes when more rows/blocks are needed,
+# so the template's styling (rPr/pPr/tcPr/tblPr) is carried along untouched.
+#
+# The placeholder templates are built so each {token} sits inside a single run
+# (see template_build/), therefore runtime replacement is a simple per-run
+# substring swap after coalescing split runs. See CHANGELOG_XML_MIGRATION.md.
+
+_W_T = qn("w:t")
+_W_R = qn("w:r")
+_W_RPR = qn("w:rPr")
+_W_P = qn("w:p")
+_W_TR = qn("w:tr")
+
+
+def _is_simple_text_run(r):
+    kids = [c for c in r if c.tag != _W_RPR]
+    return len(kids) == 1 and kids[0].tag == _W_T
+
+
+def _rpr_sig(r):
+    from lxml import etree
+    rpr = r.find(_W_RPR)
+    return etree.tostring(rpr) if rpr is not None else b""
+
+
+def _merge_runs(p):
+    """Coalesce adjacent simple text runs sharing identical rPr, so a {token}
+    that Word split across runs becomes contiguous in one run."""
+    prev = None
+    for r in list(p.findall(_W_R)):
+        if prev is not None and _is_simple_text_run(r) and _is_simple_text_run(prev) \
+                and _rpr_sig(r) == _rpr_sig(prev):
+            pt, ct = prev.find(_W_T), r.find(_W_T)
+            pt.text = (pt.text or "") + (ct.text or "")
+            pt.set(qn("xml:space"), "preserve")
+            r.getparent().remove(r)
+        else:
+            prev = r if _is_simple_text_run(r) else None
+
+
+def _para_text(p):
+    return "".join((t.text or "") for t in p.iter(_W_T))
+
+
+def _replace_tokens_in_element(element, mapping):
+    """Replace {token} occurrences inside every paragraph of `element`, preserving
+    run styling. Coalesces split runs first; falls back to a single-run rebuild
+    for a paragraph only when a token still straddles runs of differing style."""
+    for p in element.iter(_W_P):
+        if "{" not in _para_text(p):
+            continue
+        _merge_runs(p)
+        # Per-run replacement (tokens normally sit inside one run in our templates).
+        for t in p.iter(_W_T):
+            if not t.text or "{" not in t.text:
+                continue
+            new = t.text
+            for key, val in mapping.items():
+                tok = "{" + key + "}"
+                if tok in new:
+                    new = new.replace(tok, "" if val is None else str(val))
+            if new != t.text:
+                t.text = new
+                t.set(qn("xml:space"), "preserve")
+        # Fallback: any token still split across runs -> rebuild paragraph text.
+        txt = _para_text(p)
+        if "{" in txt and any(("{" + k + "}") in txt for k in mapping):
+            for key, val in mapping.items():
+                txt = txt.replace("{" + key + "}", "" if val is None else str(val))
+            _collapse_paragraph(p, txt)
+
+
+def _collapse_paragraph(p, new_text):
+    """Replace all runs of a uniform-style paragraph with one run carrying
+    new_text, keeping the first text-run's rPr."""
+    first = next((r for r in p.iter(_W_R) if _is_simple_text_run(r)), None)
+    rpr = deepcopy(first.find(_W_RPR)) if (first is not None and first.find(_W_RPR) is not None) else None
+    for el in list(p):                       # drop runs + hyperlink wrappers
+        if el.tag in (_W_R, qn("w:hyperlink")):
+            p.remove(el)
+    new_r = OxmlElement("w:r")
+    if rpr is not None:
+        new_r.append(rpr)
+    t = OxmlElement("w:t")
+    t.set(qn("xml:space"), "preserve")
+    t.text = new_text
+    new_r.append(t)
+    ppr = p.find(qn("w:pPr"))
+    (ppr.addnext(new_r) if ppr is not None else p.insert(0, new_r))
+
+
+def _find_row_with_token(document, token):
+    """Return the first <w:tr> element whose text contains `token`, else None."""
+    for tr in document.element.iter(_W_TR):
+        if token in "".join((t.text or "") for t in tr.iter(_W_T)):
+            return tr
+    return None
+
+
+def _clone_row_with_values(tmpl_tr, mapping):
+    """Deep-copy a styled template row and fill its {token}s; return the new <w:tr>."""
+    new_tr = deepcopy(tmpl_tr)
+    _replace_tokens_in_element(new_tr, mapping)
+    return new_tr
+
+
+def _clone_paragraph_block(tmpl_paras, value_dicts):
+    """Repeat a styled block of <w:p> elements (e.g. a numbered inventor entry)
+    once per dict in `value_dicts`, filling each clone's {token}s. The block is
+    inserted in document order after the template, and the template block is then
+    removed. Style (pPr/rPr) is preserved by deep-copying the nodes."""
+    if not tmpl_paras:
+        return
+    anchor = tmpl_paras[-1]
+    for values in value_dicts:
+        for src in tmpl_paras:
+            clone = deepcopy(src)
+            _replace_tokens_in_element(clone, values)
+            anchor.addnext(clone)
+            anchor = clone
+    for src in tmpl_paras:  # drop the unfilled template block
+        src.getparent().remove(src)
+
+
+# ---------------------------------------------------------------------------
+# Date formatting (the new-template forms use three styles of the signing date)
+# ---------------------------------------------------------------------------
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        suf = "th"
+    else:
+        suf = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n:02d}{suf}"
+
+
+def _parse_date(value: str):
+    value = (value or "").strip()
+    for fmt in ("%d/%m/%Y", "%d %B %Y", "%d %b %Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return date.today()
+
+
+def _date_formats(value: str) -> dict:
+    """Return the three date renderings used by the templates from one input."""
+    d = _parse_date(value)
+    day = _ordinal(d.day)
+    return {
+        "filing_date_ddmmyyyy": d.strftime("%d/%m/%Y"),
+        "date_long": f"{day} day of {d.strftime('%B')}, {d.year}",   # "05th day of February, 2026"
+        "date_filed": f"{day} {d.strftime('%B')} {d.year}",          # "05th February 2026"
+        "date_ord": f"{day} {d.strftime('%B')}, {d.year}",           # "05th February, 2026"
+    }
 
 _ROOT = os.path.join(os.path.dirname(__file__), "..")
 
@@ -57,7 +219,7 @@ TEMPLATE_PATH = os.path.join(TEMPLATES_DIR, FORMS["1"])
 # mechanism (precursor to the per-user login feature in TODO.md): read from a
 # git-ignored firm_details.json or FIRM_* env vars; default to blank so the
 # public deployment never shows anyone's details.
-_FIRM_FIELDS = ("firm_name", "firm_address", "firm_phone", "firm_email",
+_FIRM_FIELDS = ("firm_name", "firm_address", "firm_phone", "firm_fax", "firm_email",
                 "agent_name", "agent_inpa", "agent_mobile")
 
 
@@ -86,6 +248,7 @@ _PLACEHOLDER_FIRM = {
     "firm_name": "[Firm name]",
     "firm_address": "[Firm address]",
     "firm_phone": "[Firm phone]",
+    "firm_fax": "[Firm fax]",
     "firm_email": "[Firm email]",
     "agent_name": "[Agent name]",
     "agent_inpa": "[IN/PA No.]",
@@ -159,6 +322,7 @@ def _resolve_firm(user_email: str = "") -> dict:
             "firm_name": prof.get("firm_name", ""),
             "firm_address": prof.get("firm_address", ""),
             "firm_phone": prof.get("firm_phone", ""),
+            "firm_fax": prof.get("firm_fax", ""),
             "firm_email": prof.get("firm_email", ""),
             # Signing agent = explicit signing_agent, else the FIRST roster agent.
             "agent_name": sa.get("name") or first.get("name", ""),
@@ -256,6 +420,36 @@ def normalize_address(address: str, country: str = "") -> str:
         addr = pattern.sub("", addr).rstrip().rstrip(",").strip()
 
     return f"{addr}, {country}"
+
+
+def format_person_name(name: str) -> str:
+    """House style for inventor names: "SURNAME, Given Names" — surname in UPPER
+    case, comma, then given name(s) in Capital Case.
+
+    Accepts either order:
+      "TAYLOR, Martin"  -> "TAYLOR, Martin"   (already surname-first)
+      "Martin Taylor"   -> "TAYLOR, Martin"   (given-first; last token = surname)
+      "van der Berg, Jan" -> "VAN DER BERG, Jan"
+    Single-token or empty names are returned upper-cased / unchanged. Note: this
+    is for natural persons only — do NOT run it on organisation/applicant names
+    (a company like "BECHTEL ..., INC." contains a comma and would be mangled)."""
+    raw = (name or "").strip()
+    if not raw:
+        return ""
+
+    def cap(words: str) -> str:
+        return " ".join(w[:1].upper() + w[1:].lower() if w else w for w in words.split())
+
+    if "," in raw:
+        surname, given = raw.split(",", 1)
+        surname, given = surname.strip(), given.strip()
+    else:
+        parts = raw.split()
+        if len(parts) == 1:
+            return parts[0].upper()
+        surname, given = parts[-1], " ".join(parts[:-1])
+    given = cap(given)
+    return f"{surname.upper()}, {given}" if given else surname.upper()
 
 
 def best_country(person: dict) -> str:
@@ -513,7 +707,11 @@ def _scalar_replacements(data: dict, firm: dict = None) -> dict:
         "title_of_invention": data.get("title_of_invention", ""),
         "applicant_name": data.get("applicant_name")
         or ", ".join(a.get("name", "") for a in applicants if a.get("name")),
-        "applicant_address": normalize_address(first.get("address", ""), best_country(first)),
+        # Address as extracted (Gemini already formats comma-before-country);
+        # collapse whitespace only. Appending best_country() duplicated the
+        # country when the residence code (e.g. "US") differed from the full
+        # country name already in the address.
+        "applicant_address": normalize_address(first.get("address", ""), ""),
         "applicant_nationality": first.get("nationality", ""),
         "inventor_list_format": generate_inventor_list_format(inventors),
         "filing_date": filing_date,
@@ -562,6 +760,271 @@ def _replace_everywhere(document, mapping):
 
 
 # ---------------------------------------------------------------------------
+# Form 3 (Statement & Undertaking u/s 8) — XML-level fill of the new template.
+# ---------------------------------------------------------------------------
+_BLANK_APP_NO = "_______________"
+
+
+def _corresponding_app_rows(data: dict) -> list:
+    """Build the annexure rows (corresponding applications filed outside India):
+      1. the priority / first-filing application (from priority_details),
+      2. the PCT international application,
+      3. any user-supplied `corresponding_applications` entries.
+    Auto-extraction of the full family is deferred (see TODO_XML_MIGRATION.md)."""
+    rows = []
+    pr = data.get("priority_details") or {}
+    if pr.get("application_number"):
+        rows.append({
+            "fa_country": pr.get("country", "") or "-",
+            "fa_app_date": pr.get("filing_date", "") or "-",
+            "fa_app_no": pr.get("application_number", "") or "-",
+            "fa_status": "Application Filed",
+            "fa_pub": "-",
+            "fa_grant": "-",
+        })
+    pct_no = data.get("international_application_no", "")
+    if pct_no:
+        rows.append({
+            "fa_country": "PCT",
+            "fa_app_date": data.get("international_filing_date", "") or "-",
+            "fa_app_no": pct_no,
+            "fa_status": "Application Published" if data.get("international_publication_no") else "Application Filed",
+            "fa_pub": data.get("international_publication_no", "") or "-",
+            "fa_grant": "-",
+        })
+    for ca in (data.get("corresponding_applications") or []):
+        rows.append({
+            "fa_country": ca.get("country", "") or "-",
+            "fa_app_date": ca.get("app_date", "") or ca.get("filing_date", "") or "-",
+            "fa_app_no": ca.get("app_no", "") or ca.get("application_number", "") or "-",
+            "fa_status": ca.get("status", "") or "-",
+            "fa_pub": ca.get("pub", "") or "-",
+            "fa_grant": ca.get("grant", "") or "-",
+        })
+    return rows
+
+
+def _fill_form3_xml(document, data: dict, firm: dict):
+    applicants = data.get("applicants", []) or []
+    first = applicants[0] if applicants else {}
+    base_date = data.get("date") or data.get("filing_date") or date.today().strftime("%d %B %Y")
+
+    mapping = {
+        "applicant_name": data.get("applicant_name")
+        or ", ".join(a.get("name", "") for a in applicants if a.get("name")),
+        # Address is used as extracted (Gemini already formats it comma-before-
+        # country); only collapse whitespace — do NOT append the residence code,
+        # which would duplicate the country already present in the address.
+        "applicant_address": normalize_address(first.get("address", ""), ""),
+        "application_number": data.get("application_number")
+        or data.get("national_application_number") or _BLANK_APP_NO,
+        "agent_name": data.get("agent_name") or firm.get("agent_name", ""),
+        "agent_inpa": data.get("agent_inpa") or firm.get("agent_inpa", ""),
+        "firm_name": data.get("firm_name") or firm.get("firm_name", ""),
+    }
+    mapping.update(_date_formats(base_date))
+
+    # Annexure rows first (clone the {fa_*} template row), then scalar replace so
+    # the cloned rows' tokens are filled in the same pass.
+    tmpl_tr = _find_row_with_token(document, "{fa_country}")
+    rows = _corresponding_app_rows(data)
+    if tmpl_tr is not None:
+        parent = tmpl_tr.getparent()
+        if rows:
+            anchor = tmpl_tr
+            for row_vals in rows:
+                new_tr = _clone_row_with_values(tmpl_tr, row_vals)
+                anchor.addnext(new_tr)
+                anchor = new_tr
+            parent.remove(tmpl_tr)  # drop the now-unused template row
+        else:
+            # No corresponding applications: leave one row of dashes.
+            _replace_tokens_in_element(tmpl_tr, {k: "-" for k in
+                ("fa_country", "fa_app_date", "fa_app_no", "fa_status", "fa_pub", "fa_grant")})
+
+    _replace_tokens_in_element(document.element, mapping)
+
+
+# ---------------------------------------------------------------------------
+# Form 5 (Declaration as to Inventorship) — XML-level fill of the new template.
+# ---------------------------------------------------------------------------
+def _fill_form5_xml(document, data: dict, firm: dict):
+    applicants = data.get("applicants", []) or []
+    inventors = data.get("inventors", []) or []
+    first = applicants[0] if applicants else {}
+    base_date = data.get("date") or data.get("filing_date") or date.today().strftime("%d %B %Y")
+
+    mapping = {
+        "applicant_name": data.get("applicant_name")
+        or ", ".join(a.get("name", "") for a in applicants if a.get("name")),
+        "applicant_address": normalize_address(first.get("address", ""), ""),
+        "application_number": data.get("application_number")
+        or data.get("national_application_number") or _BLANK_APP_NO,
+        "agent_name": data.get("agent_name") or firm.get("agent_name", ""),
+        "agent_inpa": data.get("agent_inpa") or firm.get("agent_inpa", ""),
+        "firm_name": data.get("firm_name") or firm.get("firm_name", ""),
+    }
+    mapping.update(_date_formats(base_date))
+
+    # Clone the inventor entry block once per inventor (block = leading blank
+    # paragraph + Name/Nationality/Address).
+    name_p = next((p for p in document.element.iter(_W_P)
+                   if "{inv_name}" in _para_text(p)), None)
+    if name_p is not None:
+        cell = name_p.getparent()  # the <w:tc>
+        paras = cell.findall(_W_P)
+        ni = paras.index(name_p)
+        block = paras[ni - 1: ni + 3] if ni >= 1 else paras[ni: ni + 3]
+        values = [{
+            "inv_no": str(i),
+            "inv_name": format_person_name(inv.get("name", "")),
+            "inv_nationality": inv.get("nationality", ""),
+            "inv_address": normalize_address(inv.get("address", ""), ""),
+        } for i, inv in enumerate(inventors, 1)] or [{
+            "inv_no": "1", "inv_name": "", "inv_nationality": "", "inv_address": "",
+        }]
+        _clone_paragraph_block(block, values)
+
+    _replace_tokens_in_element(document.element, mapping)
+
+
+# ---------------------------------------------------------------------------
+# Form 1 (Application for Grant of Patent) — XML-level fill of the new template.
+# ---------------------------------------------------------------------------
+def _clone_data_rows(document, anchor_token, value_dicts):
+    """Clone the styled table row that contains `anchor_token`, once per dict."""
+    tmpl = _find_row_with_token(document, anchor_token)
+    if tmpl is None:
+        return
+    anchor = tmpl
+    for values in (value_dicts or [{}]):
+        new_tr = _clone_row_with_values(tmpl, values)
+        anchor.addnext(new_tr)
+        anchor = new_tr
+    tmpl.getparent().remove(tmpl)
+
+
+def _clone_agent_groups(document, agents):
+    """Clone the 3-row agent group ({ag_inpa}/{ag_name}/{ag_mobile}) per agent.
+    Keeps the §6 label as one continuous vertically-merged cell by forcing every
+    cloned group's first-row label cell to vMerge=continue."""
+    tr_inpa = _find_row_with_token(document, "{ag_inpa}")
+    tr_name = _find_row_with_token(document, "{ag_name}")
+    tr_mobile = _find_row_with_token(document, "{ag_mobile}")
+    if tr_inpa is None or tr_name is None or tr_mobile is None:
+        return
+    group = [tr_inpa, tr_name, tr_mobile]
+    if not agents:
+        agents = [{}]
+    anchor = group[-1]
+    for gi, ag in enumerate(agents):
+        vals = {
+            "ag_inpa": str(ag.get("inpa", "")),
+            "ag_name": str(ag.get("name", "")),
+            "ag_mobile": str(ag.get("mobile", "")),
+        }
+        for src in group:
+            clone = deepcopy(src)
+            _replace_tokens_in_element(clone, vals)
+            anchor.addnext(clone)
+            anchor = clone
+    # Remove the original template group BEFORE normalising the merge, otherwise
+    # the (about-to-be-deleted) template label cell would claim the vMerge=restart
+    # and the clones would all be left as orphaned 'continue' (blank label).
+    for src in group:
+        src.getparent().remove(src)
+    # Keep one merged label column: first label cell = restart, rest = continue.
+    _normalise_agent_label_merge(document)
+
+
+def _normalise_agent_label_merge(document):
+    """Ensure the §6 label cell is a single vertical merge: the first agent label
+    cell = restart, all the rest = continue (empty)."""
+    seen_restart = False
+    for tr in document.element.iter(_W_TR):
+        cells = tr.findall(qn("w:tc"))
+        if not cells:
+            continue
+        c0 = cells[0]
+        txt = "".join((t.text or "") for t in c0.iter(_W_T))
+        if "AUTHORIZED REGISTERED PATENT AGENT" in txt:
+            tcpr = c0.find(qn("w:tcPr"))
+            if tcpr is None:
+                continue
+            vmerge = tcpr.find(qn("w:vMerge"))
+            if vmerge is None:
+                vmerge = OxmlElement("w:vMerge")
+                tcpr.insert(0, vmerge)
+            if not seen_restart:
+                vmerge.set(qn("w:val"), "restart")
+                seen_restart = True
+            else:
+                vmerge.set(qn("w:val"), "continue")
+
+
+def _clone_inventor_decl(document, inventors):
+    """§12(i): clone the 7-paragraph inventor declaration unit per inventor."""
+    cpara = next((p for p in document.element.iter(_W_P)
+                  if "(c) Name(s) {inv_name}" in _para_text(p)), None)
+    if cpara is None:
+        return
+    cell = cpara.getparent()
+    paras = cell.findall(_W_P)
+    ci = paras.index(cpara)
+    unit = paras[ci - 4: ci + 3]  # (a)Date, '', (b)Sig, '', (c)Name, '', ''
+    values = [{"inv_name": format_person_name(inv.get("name", ""))}
+              for inv in inventors] or [{"inv_name": ""}]
+    _clone_paragraph_block(unit, values)
+
+
+def _fill_form1_xml(document, data: dict, firm: dict):
+    applicants = data.get("applicants", []) or []
+    inventors = data.get("inventors", []) or []
+    base_date = data.get("date") or data.get("filing_date") or date.today().strftime("%d %B %Y")
+
+    # Applicant rows (§3A) and inventor rows (§4).
+    _clone_data_rows(document, "{app_address}", [{
+        "app_name": a.get("name", ""),
+        "app_nationality": a.get("nationality", ""),
+        "app_country": a.get("country_of_residence", ""),
+        "app_address": normalize_address(a.get("address", ""), ""),
+    } for a in applicants])
+    _clone_data_rows(document, "{inv_address}", [{
+        "inv_name": format_person_name(i.get("name", "")),
+        "inv_nationality": i.get("nationality", ""),
+        "inv_country": i.get("country_of_residence", ""),
+        "inv_address": normalize_address(i.get("address", ""), ""),
+    } for i in inventors])
+
+    # §6 agent roster + §12(i) inventor declarations.
+    _clone_agent_groups(document, firm.get("agents", []) or [])
+    _clone_inventor_decl(document, inventors)
+
+    # Scalars (title, §9 PCT, page counts, firm/agent service details, date).
+    mapping = {
+        "title_of_invention": data.get("title_of_invention", ""),
+        "international_application_no": data.get("international_application_no", ""),
+        "international_filing_date": data.get("international_filing_date", ""),
+        "description_pages": data.get("description_pages", ""),
+        "claims_count": data.get("claims_count", ""),
+        "claims_pages_listed": data.get("claims_pages_listed", ""),
+        "abstract_pages_listed": data.get("abstract_pages_listed", ""),
+        "drawings_count": data.get("drawings_count", ""),
+        "drawings_pages_listed": data.get("drawings_pages_listed", ""),
+        "firm_name": data.get("firm_name") or firm.get("firm_name", ""),
+        "firm_address": data.get("firm_address") or firm.get("firm_address", ""),
+        "firm_phone": data.get("firm_phone") or firm.get("firm_phone", ""),
+        "firm_fax": data.get("firm_fax") or firm.get("firm_fax", ""),
+        "firm_email": data.get("firm_email") or firm.get("firm_email", ""),
+        "agent_name": data.get("agent_name") or firm.get("agent_name", ""),
+        "agent_inpa": data.get("agent_inpa") or firm.get("agent_inpa", ""),
+        "agent_mobile": data.get("agent_mobile") or firm.get("agent_mobile", ""),
+    }
+    mapping.update(_date_formats(base_date))
+    _replace_tokens_in_element(document.element, mapping)
+
+
+# ---------------------------------------------------------------------------
 # Per-form entry points
 # ---------------------------------------------------------------------------
 def fill_form(form_id: str, data: dict, user_email: str = "") -> bytes:
@@ -577,22 +1040,30 @@ def fill_form(form_id: str, data: dict, user_email: str = "") -> bytes:
 
     document = Document(os.path.join(TEMPLATES_DIR, FORMS[form_id]))
     firm = _resolve_firm(user_email)
-    mapping = _scalar_replacements(data, firm)
 
-    _replace_everywhere(document, mapping)
+    # --- XML-level (style-preserving) paths -------------------------------
+    if form_id == "3":
+        _fill_form3_xml(document, data, firm)
+        buf = io.BytesIO()
+        document.save(buf)
+        return buf.getvalue()
+
+    if form_id == "5":
+        _fill_form5_xml(document, data, firm)
+        buf = io.BytesIO()
+        document.save(buf)
+        return buf.getvalue()
 
     if form_id == "1":
-        applicants = data.get("applicants", []) or []
-        inventors = data.get("inventors", []) or []
-        # Section 9 (PCT) only — Section 8 (convention priority) stays Nil for PCT-NP.
-        fill_priority_and_pct(document, data)
-        # Section 6 agent roster (from the matched firm, else placeholder).
-        fill_agent_roster(document, firm.get("agents", []))
-        # Applicant / inventor tables.
-        insert_table_at_placeholder(document, "applicant_table_format", applicants, "applicant")
-        insert_table_at_placeholder(document, "inventor_table_format", inventors, "inventor")
+        _fill_form1_xml(document, data, firm)
+        buf = io.BytesIO()
+        document.save(buf)
+        return buf.getvalue()
 
-    bold_signature(document)
+    # Form 2 — scalar-only fill; the XML engine preserves the template's run
+    # styling (incl. the now-12pt bold title).
+    mapping = _scalar_replacements(data, firm)
+    _replace_tokens_in_element(document.element, mapping)
     buf = io.BytesIO()
     document.save(buf)
     return buf.getvalue()

@@ -20,7 +20,7 @@ try:
 except ImportError:
     from . import _auth  # type: ignore
 
-FIRM_FIELDS = ("firm_name", "firm_address", "firm_phone", "firm_email",
+FIRM_FIELDS = ("firm_name", "firm_address", "firm_phone", "firm_fax", "firm_email",
                "signing_agent_name", "signing_agent_inpa")
 
 
@@ -148,6 +148,7 @@ def bundle_to_profile(bundle: dict) -> dict:
         "firm_name": f.get("firm_name", ""),
         "firm_address": f.get("firm_address", ""),
         "firm_phone": f.get("firm_phone", ""),
+        "firm_fax": f.get("firm_fax", ""),
         "firm_email": f.get("firm_email", ""),
         # Signing agent = explicit signing_agent_*, else the FIRST roster agent.
         "agent_name": f.get("signing_agent_name") or first.get("name", ""),

@@ -41,6 +41,7 @@
     <label>Postal address</label><textarea id="firm_address" rows="2"></textarea>
     <div class="grid">
       <div><label>Phone</label><input id="firm_phone" /></div>
+      <div><label>Fax</label><input id="firm_fax" /></div>
       <div><label>Email</label><input id="firm_email" /></div>
     </div>
     <div class="grid">
@@ -66,7 +67,7 @@
 <script src="/auth.js"></script>
 <script>
   const $ = (id) => document.getElementById(id);
-  const FIRM = ["firm_name","firm_address","firm_phone","firm_email","signing_agent_name","signing_agent_inpa"];
+  const FIRM = ["firm_name","firm_address","firm_phone","firm_fax","firm_email","signing_agent_name","signing_agent_inpa"];
 
   function agentRow(a = {}) {
     const d = document.createElement("div");

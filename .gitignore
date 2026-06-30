@@ -133,3 +133,6 @@ logs/
 ehthumbs.db
 Thumbs.db
 desktop.ini
+
+# Generated firm roster SQL (PII)
+seed_kk_roster.sql

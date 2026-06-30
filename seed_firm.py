@@ -15,6 +15,7 @@ firm_config.json.
 import json
 import os
 import sys
+import urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "api"))
@@ -45,15 +46,34 @@ def main():
             "firm_name": firm.get("firm_name", ""),
             "firm_address": firm.get("firm_address", ""),
             "firm_phone": firm.get("firm_phone", ""),
+            "firm_fax": firm.get("firm_fax", ""),
             "firm_email": firm.get("firm_email", ""),
             "signing_agent_name": sa.get("name", ""),
             "signing_agent_inpa": sa.get("inpa", ""),
         }
-        if fid:
-            _db._rest("PATCH", f"/firms?id=eq.{fid}", body=fields)
-        else:
-            created = _db._rest("POST", "/firms", body=fields, prefer="return=representation")
-            fid = created[0]["id"]
+
+        def _write_firm(body):
+            """PATCH/POST the firm; if the DB predates the firm_fax column, retry
+            without it (apply the supabase_schema.sql migration to keep the fax)."""
+            try:
+                if fid:
+                    _db._rest("PATCH", f"/firms?id=eq.{fid}", body=body)
+                    return fid
+                created = _db._rest("POST", "/firms", body=body, prefer="return=representation")
+                return created[0]["id"]
+            except urllib.error.HTTPError as e:
+                if "firm_fax" in body and e.code in (400, 404):
+                    print("  ! firm_fax column missing — apply the schema migration; "
+                          "seeding firm WITHOUT fax for now.")
+                    body = {k: v for k, v in body.items() if k != "firm_fax"}
+                    if fid:
+                        _db._rest("PATCH", f"/firms?id=eq.{fid}", body=body)
+                        return fid
+                    created = _db._rest("POST", "/firms", body=body, prefer="return=representation")
+                    return created[0]["id"]
+                raise
+
+        fid = _write_firm(fields)
         for d in domains:
             _db._rest("POST", "/firm_domains", body={"domain": d, "firm_id": fid},
                       prefer="resolution=merge-duplicates")
